@@ -157,14 +157,19 @@ class NVFP4InferenceConfig(AOBaseConfig):
     NVIDIA FP4 (NVFP4) Inference Quantization Configuration
 
     This is a specialized configuration for NVIDIA's FP4 format.
-    All parameters are fixed in the NVFP4 implementation except mm_config:
+    Configuration parameters:
     - mm_config: NVFP4MMConfig, which can be set to DYNAMIC or WEIGHT_ONLY (emulated mm in high precision)
+    - use_triton_kernel: bool, whether to use fused triton kernel for activation scaling (default: False)
     - Data: float4_e2m1fn_x2
     - Scales: float8_e4m3fn
     - Block size: 16 along the reduction dim
+
+    Note: Triton kernel only works with DYNAMIC mode and has constraints that input dimensions
+    must satisfy M % 128 == 0 and K % 64 == 0. Will automatically fallback when constraints aren't met.
     """
 
     mm_config: NVFP4MMConfig = NVFP4MMConfig.DYNAMIC
+    use_triton_kernel: bool = True
 
     def __post_init__(self):
         # Validate PyTorch version
@@ -199,7 +204,10 @@ def _nvfp4_inference_linear_transform(
         weight,
         mm_config=config.mm_config,
         is_swizzled_scales=True,
+        use_triton_kernel=False,  # Always use traditional construction for weights
     )
+    # Set triton preference after construction
+    quantized_weight.use_triton_kernel = config.use_triton_kernel
     module.weight = torch.nn.Parameter(quantized_weight, requires_grad=False)
     module.extra_repr = types.MethodType(_linear_extra_repr, module)
     return module
